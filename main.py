@@ -57,7 +57,7 @@ class Animator:
                     ("Images", ".png"),
                     ("Images", ".jpg"),
                 ],
-                initialdir="C:/Users/Daniel Lage/Pictures",
+                initialdir="PICTURES FOLDER",
             )
         )
         cls.update()
