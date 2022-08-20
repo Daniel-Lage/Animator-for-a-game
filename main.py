@@ -1,23 +1,31 @@
-from collections import namedtuple
+from dataclasses import dataclass
+import json
 from tkinter import filedialog
+from typing import Any, List
 import pygame as pg
 import os
 import Colors
 
 
-class Animator:
-    Button = namedtuple("Button", ["text", "func", "shortcut"])
-    # constants
-    width, height = 600, 600
+@dataclass
+class Div:
+    text: str = None
+    onclick: Any = lambda: None
+    shortcut: str = None
+    position: List[int] = None
+    rect: pg.Rect = None
 
+
+class Animator:
+    # constants
     pg.init()
-    screen = pg.display.set_mode((width, height))
 
     font_file = os.listdir("font")[0]
     large_font = pg.font.Font(f"font/{font_file}", 48)
     medium_font = pg.font.Font(f"font/{font_file}", 32)
     small_font = pg.font.Font(f"font/{font_file}", 16)
 
+    image_names = None
     image_files = None
     image_index = 0
 
@@ -34,12 +42,13 @@ class Animator:
     corner2 = [0, 0]
 
     looping = True
+    ctrl = False
 
     @classmethod
     def update(cls):
         img = cls.image_files[cls.image_index]
         size = img.get_size()
-        cls.width = size[0] if size[0] >= 600 else 600
+        cls.width = size[0] if size[0] >= cls.minwidth else cls.minwidth
         cls.height = size[1] + 39
         pg.display.set_mode((cls.width, cls.height))
 
@@ -48,10 +57,9 @@ class Animator:
         cls.looping = False
 
     @classmethod
-    def open(cls):
-        cls.image_files = tuple(
-            pg.image.load(x).convert_alpha()
-            for x in filedialog.askopenfilenames(
+    def load(cls):
+        cls.image_names = list(
+            filedialog.askopenfilenames(
                 filetypes=[
                     ("Images", ".jpeg"),
                     ("Images", ".png"),
@@ -59,6 +67,9 @@ class Animator:
                 ],
                 initialdir="C:/Users/Daniel Lage/Pictures",
             )
+        )
+        cls.image_files = list(
+            pg.image.load(x).convert_alpha() for x in cls.image_names
         )
         cls.update()
 
@@ -80,6 +91,33 @@ class Animator:
     def next_action(cls):
         cls.action += 1 if cls.action < 3 - 1 else -2
 
+    @classmethod
+    def save_as(cls):
+        if cls.image_names:
+            image_dir = cls.image_names[cls.image_index]
+            image_filename = os.path.basename(image_dir)
+            image_name = image_filename.split(".")[0]
+            cls.image_names.pop(cls.image_index)
+            cls.image_files.pop(cls.image_index)
+            cls.image_index -= 1 if cls.image_index == len(cls.image_names) else 0
+            with open(f"frames/{image_name}.json", "w") as f:
+                cls.rectangles.extend(cls.selected)
+                cls.selected.clear()
+
+                frame = [
+                    [
+                        [
+                            rect.x,
+                            rect.y,
+                            rect.width,
+                            rect.height,
+                        ]
+                        for rect in cls.rectangles
+                    ],
+                ]
+                f.write(json.dumps(frame))
+                cls.rectangles.clear()
+
     actions = {
         0: "Drawing",
         1: "Selecting",
@@ -87,14 +125,29 @@ class Animator:
     }
 
     buttons = (
-        Button("Open File", lambda: Animator.open(), None),
-        Button("Previous", lambda: Animator.prev(), None),
-        Button("Next", lambda: Animator.next(), None),
-        Button("Previous Action", lambda: Animator.prev_action(), "PREVIOUS"),
-        Button("ACTION", lambda: None, "ACTION"),
-        Button("Next Action", lambda: Animator.next_action(), "NEXT"),
+        Div("Load File(s)", lambda: Animator.load(), "L"),
+        Div("Previous", lambda: Animator.prev(), "P"),
+        Div("Next", lambda: Animator.next(), "A"),
+        Div("Previous Action", lambda: Animator.prev_action(), "PA"),
+        Div("A", lambda: None, "A"),
+        Div("Next Action", lambda: Animator.next_action(), "NA"),
+        Div("Save", lambda: Animator.save_as(), "S"),
     )
-    hovered: Button = None
+    hovered = None
+
+    position = 5
+    for button in buttons:
+        if button.text == "A":
+            size = small_font.size("0")
+        else:
+            size = small_font.size(button.text)
+        size = list(size)
+        button.position = position
+        button.rect = pg.Rect(button.position, 5, size[0] + 10, size[1] + 10)
+        position += 20 + size[0]
+    minwidth = position
+    width, height = minwidth, 39
+    screen = pg.display.set_mode((width, height))
 
     @classmethod
     def loop(cls):
@@ -110,14 +163,24 @@ class Animator:
                 if event.key == pg.K_ESCAPE:
                     cls.stop()
 
-                elif event.key == pg.K_q:
-                    Animator.prev_action()
-                elif event.key == pg.K_e:
-                    Animator.next_action()
+                if pg.key.get_pressed()[pg.K_LCTRL]:
+                    if event.key == pg.K_q:
+                        cls.prev()
+                    elif event.key == pg.K_w:
+                        cls.next()
+                    elif event.key == pg.K_a:
+                        cls.load()
+                    elif event.key == pg.K_s:
+                        cls.save_as()
+                else:
+                    if event.key == pg.K_q:
+                        cls.prev_action()
+                    elif event.key == pg.K_w:
+                        cls.next_action()
 
             elif event.type == pg.MOUSEBUTTONDOWN:
-                if cls.hovered:  # if a button is hovered do its function
-                    cls.hovered.func()
+                if cls.hovered:  # if a button is hovered do its onclick function
+                    cls.hovered.onclick()
                 elif mpos[1] > 38:
                     cls.pressing = 1
                     cls.corner1 = mpos
@@ -215,7 +278,6 @@ class Animator:
             (0, 0, cls.width, 39),
         )
 
-        position = 0
         cls.hovered = None
         for button in cls.buttons:
             text = button.text
@@ -223,7 +285,7 @@ class Animator:
                 text = str(cls.action)
 
             size = cls.small_font.size(text)
-            button_rect = pg.Rect(position + 5, 5, size[0] + 10, size[1] + 10)
+            button_rect = pg.Rect(button.position, 5, size[0] + 10, size[1] + 10)
             shortcut = None
             if button_rect.collidepoint(mpos) and not cls.pressing:
                 cls.hovered = button
@@ -236,19 +298,21 @@ class Animator:
 
             cls.screen.blit(
                 cls.small_font.render(text, True, Colors.Text),
-                (position + 10, 10),
+                (button.position + 5, 10),
             )
-
-            position += 20 + size[0]
 
         if cls.hovered:
             if cls.hovered.shortcut:
                 shortcut = {
-                    "PREVIOUS": "(Q) "
+                    "L": "(Ctrl + A)",
+                    "P": "(Ctrl + Q)",
+                    "N": "(Ctrl + W)",
+                    "PA": "(Q) "
                     + cls.actions[cls.action - 1 if cls.action > 0 else cls.action + 2],
-                    "ACTION": cls.actions[cls.action],
-                    "NEXT": "(E) "
+                    "A": cls.actions[cls.action],
+                    "NA": "(W) "
                     + cls.actions[cls.action + 1 if cls.action < 2 else cls.action - 2],
+                    "S": "(Ctrl + S)",
                 }[cls.hovered.shortcut]
 
                 if shortcut:
